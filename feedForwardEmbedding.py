@@ -228,13 +228,8 @@ class Runner:
       '''
       Process the training data in minibatches
       '''
-      for start, end in zip(range(0, 
-                                  len(trainX)+1, 
-                                  self.args.batch_size),
- 
-                            range(self.args.batch_size, 
-                                  len(trainX)+1, 
-                                  self.args.batch_size)):
+      for start, end in zip(range(0, len(trainX)+1, self.args.batch_size), 
+                            range(self.args.batch_size, len(trainX)+1, self.args.batch_size)):
         x = trainX[start:end]
         y = trainY[start:end].T
         trainloss.append(numpy.mean(network.train(x, y, 
@@ -257,12 +252,12 @@ class Runner:
         savetime = strftime("%d%m%Y-%H%M%S", gmtime())       
         try:
           os.mkdir("checkpoints")
-        except os.OSError:
-          continue # directory already exists
+        except OSError:
+          pass # directory already exists
         os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
         network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
 
-      print "epoch %d [train] log-likelihood: %.4f [val] log-likelihood:,"\
+      print "epoch %d [train] log-likelihood: %.4f [val] log-likelihood:"\
             "%.4f %s" % (i, numpy.mean(trainloss), numpy.mean(valloss), 
             "(saved)" if best_e == i else "")
 

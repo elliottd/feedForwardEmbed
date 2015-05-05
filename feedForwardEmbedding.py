@@ -21,28 +21,36 @@ class WordEmbedder:
 
   def __init__(self, args):
     self.args = args
+    self.names = ['embeddings', 'hidden-embeddings', 'output-hidden', 
+                  'bias-hidden', 'bias-output']
 
-    # Initialise the Theano types that will hold the parameters
-    self.names = ['embeddings', 'hidden-embeddings', 'output-hidden', 'bias-hidden', 'bias-output']
+    ''' The word embeddings is a matrix of dim:
+          |vocabulary| x |embedding layer| '''
     emb = self.initWeights(args.vocab_size+1, 
                            args.embed_size, 
                            args.checkpoint, 
                            self.names[0])
 
+    ''' The embedding -> hidden layer weights is a matrix of dim:
+         |embedding layer| * |input| x |hidden layer| '''
     whe = self.initWeights(args.embed_size * args.ngram, 
                            args.hidden_size, 
                            args.checkpoint, 
                            self.names[1])
 
+    ''' The hidden -> output layer weights is a matrix of dim:
+          |hiden layer| x |vocabulary| '''
     woh = self.initWeights(args.hidden_size, 
                            args.vocab_size+1, 
                            args.checkpoint, 
                            self.names[2])
 
+    ''' Bias for the hidden layer '''
     bh = self.initBiases(args.hidden_size, 
                          args.checkpoint, 
                          self.names[3])
 
+    ''' Bias for the output layer '''
     bo = self.initBiases(args.vocab_size+1, 
                          args.checkpoint, 
                          self.names[4])
@@ -54,7 +62,7 @@ class WordEmbedder:
     word_indices = T.imatrix() # Input sequences are a matrix of integers
                                # with one line per instance.
 
-    # Reshape to a vector with d=(ngram , embedding size * ngramlen)
+    # Reshape the input into a vector d = |1| x |embedding size * ngramlen|
     x = emb[word_indices].reshape((word_indices.shape[0], 
                                    args.embed_size * args.ngram)) 
 
@@ -139,6 +147,17 @@ class WordEmbedder:
     return h, py_x
 
   '''
+  Selects an optimization function for minimizing the cost of the model
+  '''
+  def optimizer(self, params, grads, lr, mom):
+    if self.args.optimizer == "sgd":
+      return self.sgd_updates(params, grads, lr)
+    if self.args.optimizer == "momentum":
+      return self.momentum_updates(params, grads, lr, mom)
+    if self.args.optimizer == "nesterov":
+      return self.nesterov_updates(params, grads, lr, mom)
+
+  '''
   Stochastic gradient descent updates:
     weight = weight - learning_rate * gradient
   '''
@@ -176,17 +195,6 @@ class WordEmbedder:
       updates.append((pvelocity, momentum*pvelocity - learning_rate*g))
       updates.append((p, p + (momentum*pprev) + ((1-momentum) * pvelocity)))
     return updates
-
-  '''
-  Selects an optimization function for minimizing the cost of the model
-  '''
-  def optimizer(self, params, grads, lr, mom):
-    if self.args.optimizer == "sgd":
-      return self.sgd_updates(params, grads, lr)
-    if self.args.optimizer == "momentum":
-      return self.momentum_updates(params, grads, lr, mom)
-    if self.args.optimizer == "nesterov":
-      return self.nesterov_updates(params, grads, lr, mom)
 
   '''
   Serialise the model parameters to disk.

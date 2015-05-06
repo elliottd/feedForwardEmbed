@@ -13,7 +13,6 @@ import theano
 import theano.tensor as T
 import scipy
 import scipy.io
-import matplotlib.pyplot as plt
 
 from loadData import LoadData
 
@@ -215,6 +214,7 @@ class Runner:
     network = WordEmbedder(self.args)
 
     trainloss = []
+    runtime = []
     best_e = -1
     best_vl = numpy.inf
 
@@ -235,11 +235,12 @@ class Runner:
         trainloss.append(numpy.mean(network.train(x, y, 
                                                   self.args.learning_rate,
                                                   self.args.momentum)))
-
         print '[train] epoch %i > %.2f%%,' % (i, (start+1)*100./len(trainX)),\
-              'completed in %.2f (sec) <<\r' %(time.time()-tic),
+              'completed in %.2f (sec) <<\r' % (time.time()-tic),
 
         sys.stdout.flush()
+
+      runtime.append(time.time()-tic)
 
       vx = validX
       vy = validY.T
@@ -258,7 +259,7 @@ class Runner:
         network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
 
       print "epoch %d took %.2f (s) [train] log-likelihood: %.4f [val] "\
-            "log-likelihood: %.4f %s" % (i, time.time()-tic, 
+            "log-likelihood: %.4f %s" % (i, runtime[-1], 
             numpy.mean(trainloss), numpy.mean(valloss), 
             "(saved)" if best_e == i else "")
 
@@ -280,8 +281,8 @@ class Runner:
         break
 
     print
-    print "Training complete! Best epoch %d [val] log-likelihood: %.4f"\
-          % (best_e, best_vl)
+    print "Trained in %.2f (s). Best epoch %d [val] log-likelihood: %.4f"\
+          % (numpy.sum(runtime), best_e, best_vl)
 
   '''
   Load the data from the inputfile into memory, with train/val/test chunks
@@ -308,7 +309,7 @@ if __name__ == "__main__":
 
   parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model")
   
-  parser.add_argument("--inputfile", type=str, help="Path to input text file")
+  parser.add_argument("--inputfile", type=str, help="Path to input text file", default="raw_sentences.txt")
   parser.add_argument("--nlen", type=int, help="n-gram lengths to extract from text. Default=4", default=4)
   parser.add_argument("--unk", type=int, help="unknown character cut-off", default=5)
 

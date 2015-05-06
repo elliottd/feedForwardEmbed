@@ -257,8 +257,9 @@ class Runner:
         os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
         network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
 
-      print "epoch %d [train] log-likelihood: %.4f [val] log-likelihood:"\
-            "%.4f %s" % (i, numpy.mean(trainloss), numpy.mean(valloss), 
+      print "epoch %d took %.2f (s) [train] log-likelihood: %.4f [val] "\
+            "log-likelihood: %.4f %s" % (i, time.time()-tic, 
+            numpy.mean(trainloss), numpy.mean(valloss), 
             "(saved)" if best_e == i else "")
 
       ''' Decay the learning rate decay AND increase momentum if

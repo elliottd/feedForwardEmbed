@@ -217,6 +217,7 @@ class Runner:
     runtime = []
     best_e = -1
     best_vl = numpy.inf
+    best_dir = None
 
     idx2w  = dict((v,k) for k,v in vocab.iteritems())
 
@@ -257,6 +258,7 @@ class Runner:
           pass # directory already exists
         os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
         network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
+        bestdir = "checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime)
 
       print "epoch %d took %.2f (s) [train] log-likelihood: %.4f [val] "\
             "log-likelihood: %.4f %s" % (i, runtime[-1], 
@@ -276,6 +278,12 @@ class Runner:
 
         print "Decaying learning rate to %f, increasing momentum to %f" \
         % (self.args.learning_rate, self.args.momentum)
+
+        # Reload the network from the previous best position to
+        # (possibly) speed up learning
+        print "Reverting to the parameters are checkpoint %s" % bestdir
+        self.args.checkpoint = bestdir
+        network = WordEmbedder(self.args)
 
       if self.args.learning_rate < 1e-5: 
         break
@@ -311,7 +319,7 @@ if __name__ == "__main__":
   
   parser.add_argument("--inputfile", type=str, help="Path to input text file", default="raw_sentences.txt")
   parser.add_argument("--nlen", type=int, help="n-gram lengths to extract from text. Default=4", default=4)
-  parser.add_argument("--unk", type=int, help="unknown character cut-off", default=5)
+  parser.add_argument("--unk", type=int, help="unknown character cut-off", default=0)
 
   r = Runner(parser.parse_args())
   r.run()

@@ -11,7 +11,6 @@ from numpy.random import randn
 from numpy import zeros
 import theano
 import theano.tensor as T
-from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import scipy
 import scipy.io
 
@@ -22,7 +21,6 @@ class WordEmbedder:
 
   def __init__(self, args):
     self.args = args
-    self.srng = RandomStreams()
     self.names = ['embeddings', 'hidden-embeddings', 'output-hidden', 
                   'bias-hidden', 'bias-output']
 
@@ -79,24 +77,16 @@ class WordEmbedder:
     lr = T.scalar('lr')
     mom = T.scalar('mom')
 
-    ''' The model and its cost function at training time.
-        We use dropout on the hidden units with p=0.5 '''
-    dropout_p = 0.5 if self.args.dropout else 0.0
-    dh, dpy_x = self.model(x, whe, woh, bh, bo, dropout=dropout_p) # forward prop from embeddings 
-                                              # to the hidden layer and 
-                                              # word prediction layer
-
-    ''' The model at test time. No dropout. '''
-    h, py_x = self.model(x, whe, woh, bh, bo, dropout=0.0) # forward prop from embeddings 
+    h, py_x = self.model(x, whe, woh, bh, bo) # forward prop from embeddings 
                                               # to the hidden layer and 
                                               # word prediction layer
 
     # -ve log-likelihood on the dropout model
-    cost = -T.mean(T.log(dpy_x)[T.arange(x.shape[0]), y]) 
+    cost = -T.mean(T.log(py_x)[T.arange(x.shape[0]), y])
     cost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
     cost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
+
     gradients = T.grad(cost, self.params)
-    dy_x = T.argmax(dpy_x, axis=1) # sample max prob word from dropout model
     y_x = T.argmax(py_x, axis=1) # sample the max prob word from test model
 
     dist = emb - single_x                   # calculate the squared distance
@@ -106,7 +96,7 @@ class WordEmbedder:
         word, and a learning rate. Selects the optimizer based on the user
         requirements.'''
     self.train = theano.function(inputs=[word_indices, y, lr, mom],
-                                 outputs=cost, 
+                                 outputs=cost,
                                  updates=self.optimizer(self.params, gradients, lr, mom),
                                  allow_input_downcast=True)
 
@@ -153,21 +143,10 @@ class WordEmbedder:
   h is the hidden layer, which has sigmoid activations from the embeddings
   py_x is the output layer, which has softmax activations from the hidden
   '''
-  def model(self, e, whe, woh, bh, bo, dropout=0.5):
+  def model(self, e, whe, woh, bh, bo):
     h = T.nnet.sigmoid(T.dot(e, whe) + bh)
-    dh = self.dropout(h, dropout)
     py_x = T.nnet.softmax(T.dot(h, woh) + bo)
     return h, py_x
-
-  '''
-  Dropout units in a layer with a probability p=X. Default is no dropout.
-  '''
-  def dropout(self, X, p=0.):
-    if p > 0:
-        retain_prob = 1 - p
-        X *= self.srng.binomial(X.shape, p=retain_prob, dtype=theano.config.floatX)
-        X /= retain_prob
-    return X
 
   '''
   Selects an optimization function for minimizing the cost of the model
@@ -338,7 +317,6 @@ if __name__ == "__main__":
   parser.add_argument("--learning_rate", default=0.1, type=float)
   parser.add_argument("--momentum", default=0.5, type=float)
   parser.add_argument("--decay", default=True, type=bool, help="Decay learning rate if no improvement in loss?")
-  parser.add_argument("--dropout", action="store_true", help="Should the units in the hidden layer dropout at training?")
 
   parser.add_argument("--l1reg", default=1e-5, type=float, help="L1 cost penalty. Default=1e-5; 0=off")
   parser.add_argument("--l2reg", default=1e-5, type=float, help="L2 cost penalty. Default=1e-5; 0=off")

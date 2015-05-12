@@ -250,7 +250,8 @@ class Runner:
       vy = validY.T
       valloss, y_x = network.validate(vx,vy)
 
-      # Save model parameters to disk if it improved validation log-likelihood
+      # Save model parameters and arguments to disk 
+      # if it improved validation log-likelihood
       if valloss < best_vl:
         best_vl = valloss
         best_e = i
@@ -262,6 +263,7 @@ class Runner:
         os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
         network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
         bestdir = "checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime)
+        self.saveArguments(bestdir)
 
       print "epoch %d took %.2f (s) [train] log-likelihood: %.4f [val] "\
             "log-likelihood: %.4f %s" % (i, runtime[-1], 
@@ -302,6 +304,16 @@ class Runner:
     loader = LoadData(self.args)
     trainx, trainy, valx, valy, testx, testy, vocab = loader.run()
     return trainx, trainy, valx, valy, testx, testy, vocab      
+
+  '''
+  Save the command-line arguments, along with the method defaults,
+  used to parameterise this run.
+  '''
+  def saveArguments(self, directory):
+    handle = open("%s/arparse.args" % directory, "w")
+    for arg, val in self.args.__dict__.iteritems():
+      handle.write("%s: %s\n" % (arg, str(val)))
+    handle.close()
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="Train a simple tri-gram word embeddings model")

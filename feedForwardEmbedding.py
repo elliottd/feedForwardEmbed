@@ -81,8 +81,8 @@ class WordEmbedder:
                                               # to the hidden layer and 
                                               # word prediction layer
 
-    # -ve log-likelihood on the dropout model
-    cost = -T.mean(T.log(py_x)[T.arange(x.shape[0]), y])
+    # Cross-entropy loss
+    cost = T.mean(T.nnet.categorical_crossentropy(py_x, y))
     cost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
     cost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
 
@@ -235,7 +235,10 @@ class Runner:
       for start, end in zip(range(0, len(trainX)+1, self.args.batch_size), 
                             range(self.args.batch_size, len(trainX)+1, self.args.batch_size)):
         x = trainX[start:end]
-        y = trainY[start:end].T
+        y = []
+        for v in trainY[start:end]:
+          y.append(numpy.eye(self.args.vocab_size+1)[v][0])
+        y = numpy.array(y)
         trainloss.append(numpy.mean(network.train(x, y, 
                                                   self.args.learning_rate,
                                                   self.args.momentum)))
@@ -247,7 +250,10 @@ class Runner:
       runtime.append(time.time()-tic)
 
       vx = validX
-      vy = validY.T
+      vy = []
+      for v in validY:
+        vy.append(numpy.eye(self.args.vocab_size+1)[v][0])
+      vy = numpy.array(vy)
       valloss, y_x = network.validate(vx,vy)
 
       # Save model parameters and arguments to disk 
@@ -330,8 +336,8 @@ if __name__ == "__main__":
   parser.add_argument("--momentum", default=0.5, type=float)
   parser.add_argument("--decay", default=True, type=bool, help="Decay learning rate if no improvement in loss?")
 
-  parser.add_argument("--l1reg", default=1e-5, type=float, help="L1 cost penalty. Default=1e-5; 0=off")
-  parser.add_argument("--l2reg", default=1e-5, type=float, help="L2 cost penalty. Default=1e-5; 0=off")
+  parser.add_argument("--l1reg", default=0., type=float, help="L1 cost penalty. Default=0. (off)")
+  parser.add_argument("--l2reg", default=0., type=float, help="L2 cost penalty. Default=0. (off)")
 
   parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model")
   

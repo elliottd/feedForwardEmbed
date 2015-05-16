@@ -11,6 +11,7 @@ from numpy.random import randn
 from numpy import zeros
 import theano
 import theano.tensor as T
+from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import scipy
 import scipy.io
 
@@ -57,6 +58,9 @@ class WordEmbedder:
 
     self.params = [emb, whe, woh, bh, bo]
 
+    ''' Random Number Generator used to drop units '''
+    self.srng = RandomStreams()
+
     ''' Theano types for the input, output, and hyper-parameters '''
 
     word_indices = T.imatrix() # Input sequences are a matrix of integers
@@ -81,12 +85,21 @@ class WordEmbedder:
                                               # to the hidden layer and 
                                               # word prediction layer
 
+    nh, npy_x = self.model(x, whe, woh, bh, bo,     # forward prop using
+                           dropin=self.args.dropin, # dropout in the input
+                           droph=self.args.droph)   # and hidden layer units
+
     # Cross-entropy loss
     cost = T.mean(T.nnet.categorical_crossentropy(py_x, y))
     cost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
     cost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
 
-    gradients = T.grad(cost, self.params)
+    # Cross-entropy loss when dropping
+    dcost = T.mean(T.nnet.categorical_crossentropy(py_x, y))
+    dcost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
+    dcost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
+
+    gradients = T.grad(dcost, self.params)
     y_x = T.argmax(py_x, axis=1) # sample the max prob word from test model
 
     dist = emb - single_x                   # calculate the squared distance
@@ -96,7 +109,7 @@ class WordEmbedder:
         word, and a learning rate. Selects the optimizer based on the user
         requirements.'''
     self.train = theano.function(inputs=[word_indices, y, lr, mom],
-                                 outputs=cost,
+                                 outputs=dcost,
                                  updates=self.optimizer(self.params, gradients, lr, mom),
                                  allow_input_downcast=True)
 
@@ -142,11 +155,25 @@ class WordEmbedder:
   The model is a simple multi-layer perceptron.
   h is the hidden layer, which has sigmoid activations from the embeddings
   py_x is the output layer, which has softmax activations from the hidden
+
+  dropin: probabilty of dropping embedding units
+  droph: probability of dropping hidden units
   '''
-  def model(self, e, whe, woh, bh, bo):
-    h = T.nnet.sigmoid(T.dot(e, whe) + bh)
+  def model(self, e, whe, woh, bh, bo, dropin=0., droph=0.):
+    e = self.dropout(e, dropin)
+    h = self.dropout(T.nnet.sigmoid(T.dot(e, whe) + bh), droph)
     py_x = T.nnet.softmax(T.dot(h, woh) + bo)
     return h, py_x
+
+  '''
+  Dropout units in the layer X with probability given by p.
+  '''
+  def dropout(self, X, p=0.):
+    if p > 0:
+        retain_prob = 1 - p
+        X *= self.srng.binomial(X.shape, p=retain_prob, dtype=theano.config.floatX)
+        X /= retain_prob
+    return X
 
   '''
   Selects an optimization function for minimizing the cost of the model
@@ -213,6 +240,16 @@ class Runner:
   def run(self):
     trainX, trainY, validX, validY, testX, testY, vocab = self.myLoadData()
     self.args.vocab_size = len(vocab)
+
+    ''' Display the received / default arguments for this run '''
+    for arg, val in self.args.__dict__.iteritems():
+      print("%s: %s" % (arg, str(val)))
+
+    ''' It is recommended to increase the capacity of a dropout network by
+        n/p. See Appendix A of Srivastava et al. (2014) '''
+    if self.args.droph != 0. or self.args.dropin != 0.:
+      self.args.embed_size = int(math.floor(self.args.embed_size / self.args.dropin))
+      self.args.hidden_size = int(math.floor(self.args.hidden_size / self.args.droph))
 
     network = WordEmbedder(self.args)
 
@@ -338,6 +375,8 @@ if __name__ == "__main__":
 
   parser.add_argument("--l1reg", default=0., type=float, help="L1 cost penalty. Default=0. (off)")
   parser.add_argument("--l2reg", default=0., type=float, help="L2 cost penalty. Default=0. (off)")
+  parser.add_argument("--dropin", default=0., type=float, help="Prob. of dropping embedding units. Default=0.")
+  parser.add_argument("--droph", default=0., type=float, help="Prob. of dropping hidden units. Default=0.")
 
   parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model")
   

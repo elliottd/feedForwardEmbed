@@ -1,15 +1,95 @@
 import argparse
+import cPickle
 import numpy
-from feedForwardEmbedding import WordEmbedder
-from loadData import LoadData
+
+import theano
+import theano.tensor as T
+
+class NearestEmbedder:
+
+  def __init__(self, args):
+    self.names = ['embeddings', 'hidden-embeddings', 'output-hidden', 
+                  'bias-hidden', 'bias-output']
+
+    ''' The word embeddings is a matrix of dim:
+          |vocabulary| x |embedding layer| '''
+    emb = self.initWeights(args.checkpoint, self.names[0])
+
+    ''' The embedding -> hidden layer weights is a matrix of dim:
+         |embedding layer| * |input| x |hidden layer| '''
+    whe = self.initWeights(args.checkpoint, self.names[1])
+
+    ''' The hidden -> output layer weights is a matrix of dim:
+          |hiden layer| x |vocabulary| '''
+    woh = self.initWeights(args.checkpoint, self.names[2])
+
+    ''' Bias for the hidden layer '''
+    bh = self.initBiases(args.checkpoint, self.names[3])
+
+    ''' Bias for the output layer '''
+    bo = self.initBiases(args.checkpoint, self.names[4])
+
+    self.params = [emb, whe, woh, bh, bo]
+
+    ''' Theano types for the input, output, and hyper-parameters '''
+
+    # Alternative input type used for word-word similarities
+    word = T.iscalar()
+    single_x = emb[word]
+
+    dist = emb - single_x                   # calculate the squared distance
+    ndist = T.sum(T.sqrt(dist **2), axis=1) # between word representations
+
+    ''' Given one input word, return it's closest words in the embedding space'''
+    self.distance = theano.function(inputs=[word], outputs=ndist)
+
+  '''
+  Initialise the weights from scratch of unpickle them from disk
+  '''
+  def initWeights(self, checkpoint=None, name=None):
+    return theano.shared(numpy.load("%s/%s.npy" % (checkpoint, name)).astype(theano.config.floatX))
+
+  '''
+  Initialise the bias from scratch of unpickle them from disk
+  '''
+  def initBiases(self, checkpoint=None, name=None):
+    return theano.shared(numpy.load("%s/%s.npy" % (checkpoint, name)).astype(theano.config.floatX))
 
 class NearestWords:
 
   def __init__(self, args):
-    y,z,a,b,c,d,self.vocab = LoadData(args).run()
+    self.n = args.n
+    self.vocab = cPickle.load(open("%s/dictionary.pk" % args.checkpoint, "rb"))
     args.vocab_size = len(self.vocab)
-    self.model = WordEmbedder(args)
+    self.model = NearestEmbedder(args)
 
+  def run(self):
+    idx2w  = dict((v,k) for k,v in self.vocab.iteritems())
+
+    print "Model vocabulary"
+    print(self.fmtcols(self.vocab.keys(), 6))
+
+    while True:
+      text = raw_input("--->")
+
+      if text == "vocab!":
+        print "Model vocabulary"
+        print(self.fmtcols(self.vocab.keys(), 6))
+        continue
+
+      testseq = self.words2indices(text)
+
+      if testseq != None:
+        nearest = self.model.distance(testseq)
+        snearest = sorted(zip(nearest, range(len(self.vocab))))
+        print "%d nearest words to %s:\n" % (self.n, text)
+        for i in range(1,self.n+1): # Avoid self and +1
+          print idx2w[snearest[i][1]], snearest[i][0]
+        print
+
+  '''
+  Convert a word token into a dictionary index
+  '''
   def words2indices(self, string):
     split = string.split()
     if len(split) != 1:
@@ -24,44 +104,19 @@ class NearestWords:
     return testseq[0]
 
   '''
-  http://stackoverflow.com/questions/1524126/how-to-print-a-list-more-nicely/1524333#1524333
+  Pretty print the dictionary.
+
+  http://stackoverflow.com/questions/1524126/how-to-print-a-list-more-nicely/
   '''
   def fmtcols(self, mylist, cols):
     lines = ("\t".join(mylist[i:i+cols]) for i in xrange(0,len(mylist),cols))
     return '\n'.join(lines)
-    
-  def run(self):
-    idx2w  = dict((v,k) for k,v in self.vocab.iteritems())
-    print "Model vocabulary"
-    print(self.fmtcols(self.vocab.keys(), 6))
-    while True:
-      text = raw_input("--->")
-      if text == "vocab!":
-        print "Model vocabulary"
-        print(self.fmtcols(self.vocab.keys(), 6))
-        continue
-      testseq = self.words2indices(text)
-      if testseq != None:
-        nearest = self.model.distance(testseq)
-        snearest = sorted(zip(nearest, range(len(self.vocab))))
-        print "Ten nearest words to %s:" % text
-        for i in range(1,10):
-          print idx2w[snearest[i][1]], snearest[i][0]
-        print
 
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description="Predict the next word, given a sequence of three words")
+  parser = argparse.ArgumentParser(description="Predict the N-most simlar words to a given word")
 
-  parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model")
-  parser.add_argument("--embed_size", default=50, type=int)
-  parser.add_argument("--hidden_size", default=200, type=int)
-  parser.add_argument("--learning_rate", default=0.1, type=float)
-  parser.add_argument("--momentum", default=0.5, type=float)
-  parser.add_argument("--inputfile", type=str, help="Path to input text file")
-  parser.add_argument("--nlen", type=int, help="n-gram lengths to extract from text. Default=4", default=4)
-  parser.add_argument("--unk", type=int, help="unknown character cut-off", default=5)
-  parser.add_argument("--ngram", default=3, type=int)
-  parser.add_argument("--optimizer", default="momentum")
+  parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model", required=True)
+  parser.add_argument("--n", type=int, default=10, help="N nearest words. Default=10")
   
   n = NearestWords(parser.parse_args())
   n.run()

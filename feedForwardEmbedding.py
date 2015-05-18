@@ -3,6 +3,7 @@ import sys
 import math
 import time
 import os
+import shutil
 from time import gmtime, strftime
 
 import numpy
@@ -12,8 +13,6 @@ from numpy import zeros
 import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-import scipy
-import scipy.io
 
 from loadData import LoadData
 
@@ -357,6 +356,7 @@ class Runner:
     for arg, val in self.args.__dict__.iteritems():
       handle.write("%s: %s\n" % (arg, str(val)))
     handle.close()
+    shutil.copyfile("dictionary.pk", "%s/dictionary.pk" %  directory) # copy the dictionary
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="Train a simple tri-gram word embeddings model")

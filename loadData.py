@@ -1,6 +1,7 @@
 import os
 import argparse
 import math
+import cPickle
 
 import numpy
 
@@ -62,6 +63,9 @@ class LoadData:
         unkCounter += 1
 
     print "%s words occurred fewer then UNK %d times" % (unkCounter, self.args.unk)
+
+    print "Pickling dictionary to dictionary.pk"
+    cPickle.dump(self.vocab, open("dictionary.pk", "wb"))
 
   '''
   Construct a set of input sequences and target words.

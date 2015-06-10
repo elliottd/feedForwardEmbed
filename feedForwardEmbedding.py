@@ -4,7 +4,8 @@ import math
 import time
 import os
 import shutil
-from time import gmtime, strftime
+from time import gmtime, strftime, time
+from collections import OrderedDict
 
 import numpy
 from numpy import *
@@ -15,221 +16,7 @@ import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 from loadData import LoadData
-
-class WordEmbedder:
-
-
-  def __init__(self, args):
-    self.args = args
-    self.names = ['embeddings', 'hidden-embeddings', 'output-hidden', 
-                  'bias-hidden', 'bias-output']
-
-    ''' The word embeddings is a matrix of dim:
-          |vocabulary| x |embedding layer| '''
-    emb = self.initWeights(args.vocab_size+1, 
-                           args.embed_size, 
-                           args.checkpoint, 
-                           self.names[0])
-
-    ''' The embedding -> hidden layer weights is a matrix of dim:
-         |embedding layer| * |input| x |hidden layer| '''
-    whe = self.initWeights(args.embed_size * args.ngram, 
-                           args.hidden_size, 
-                           args.checkpoint, 
-                           self.names[1])
-
-    ''' The hidden -> output layer weights is a matrix of dim:
-          |hiden layer| x |vocabulary| '''
-    woh = self.initWeights(args.hidden_size, 
-                           args.vocab_size+1, 
-                           args.checkpoint, 
-                           self.names[2])
-
-    ''' Bias for the hidden layer '''
-    bh = self.initBiases(args.hidden_size, 
-                         args.checkpoint, 
-                         self.names[3])
-
-    ''' Bias for the output layer '''
-    bo = self.initBiases(args.vocab_size+1, 
-                         args.checkpoint, 
-                         self.names[4])
-
-    self.params = [emb, whe, woh, bh, bo]
-
-    ''' Random Number Generator used to drop units '''
-    self.srng = RandomStreams()
-
-    ''' Theano types for the input, output, and hyper-parameters '''
-
-    word_indices = T.imatrix() # Input sequences are a matrix of integers
-                               # with one line per instance.
-
-    # Reshape the input into a vector d = |1| x |embedding size * ngramlen|
-    x = emb[word_indices].reshape((word_indices.shape[0], 
-                                   args.embed_size * args.ngram)) 
-
-    y = T.imatrix('y') # Output targets are a matrix of integers with
-                       # one per instance. 
-
-    # Alternative input type used for word-word similarities
-    word = T.iscalar()
-    single_x = emb[word]
-
-    # weight update hyperparameters
-    lr = T.scalar('lr')
-    mom = T.scalar('mom')
-
-    h, py_x = self.model(x, whe, woh, bh, bo) # forward prop from embeddings 
-                                              # to the hidden layer and 
-                                              # word prediction layer
-
-    nh, npy_x = self.model(x, whe, woh, bh, bo,     # forward prop using
-                           dropin=self.args.dropin, # dropout in the input
-                           droph=self.args.droph)   # and hidden layer units
-
-    # Cross-entropy loss
-    cost = T.mean(T.nnet.categorical_crossentropy(py_x, y))
-    cost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
-    cost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
-
-    # Cross-entropy loss when dropping
-    dcost = T.mean(T.nnet.categorical_crossentropy(py_x, y))
-    dcost += sum([T.sum(x) for x in self.params]) * self.args.l1reg # L1 regularisation
-    dcost += sum([T.sum([T.sqr(x)]) for x in self.params]) * self.args.l2reg # L2
-
-    gradients = T.grad(dcost, self.params)
-    y_x = T.argmax(py_x, axis=1) # sample the max prob word from test model
-
-    dist = emb - single_x                   # calculate the squared distance
-    ndist = T.sum(T.sqrt(dist **2), axis=1) # between word representations
-
-    ''' Train the parameters of the model, given a sequence of words, a target
-        word, and a learning rate. Selects the optimizer based on the user
-        requirements.'''
-    self.train = theano.function(inputs=[word_indices, y, lr, mom],
-                                 outputs=dcost,
-                                 updates=self.optimizer(self.params, gradients, lr, mom),
-                                 allow_input_downcast=True)
-
-    '''Validation is where we can test whether reducing the training loss
-       is helping to reduce our loss on "unseen" data'''
-    self.validate = theano.function(inputs=[word_indices, y], 
-                                    outputs=[cost,y_x], 
-                                    allow_input_downcast=True)
-
-    '''Predict is used to retrieve the softmax vector over all predicted
-       words, given an input sequence.'''
-    self.predict = theano.function(inputs=[word_indices], 
-                                   outputs=py_x, 
-                                   allow_input_downcast=True)
-
-    ''' Normalise the weights in the embedding layer to be within the unit
-        sphere. TODO: understand why?'''
-    self.normalize = theano.function(inputs=[],
-                                     updates={emb:emb / T.sqrt((emb**2).sum(axis=1)).dimshuffle(0, 'x')})
-
-    ''' Given one input word, return it's closest words in the embedding space'''
-    self.distance = theano.function(inputs=[word], outputs=ndist)
-
-  '''
-  Initialise the weights from scratch of unpickle them from disk
-  '''
-  def initWeights(self, xdim, ydim, checkpoint=None, name=None):
-    if checkpoint == None:
-      return theano.shared(0.01 * randn(xdim, ydim).astype(theano.config.floatX))
-    else:
-      return theano.shared(numpy.load("%s/%s.npy" % (checkpoint, name)).astype(theano.config.floatX))
-
-  '''
-  Initialise the bias from scratch of unpickle them from disk
-  '''
-  def initBiases(self, dims, checkpoint=None, name=None):
-    if checkpoint == None:
-      return theano.shared(zeros(dims, dtype=theano.config.floatX))
-    else:
-      return theano.shared(numpy.load("%s/%s.npy" % (checkpoint, name)).astype(theano.config.floatX))
-
-  '''
-  The model is a simple multi-layer perceptron.
-  h is the hidden layer, which has sigmoid activations from the embeddings
-  py_x is the output layer, which has softmax activations from the hidden
-
-  dropin: probabilty of dropping embedding units
-  droph: probability of dropping hidden units
-  '''
-  def model(self, e, whe, woh, bh, bo, dropin=0., droph=0.):
-    e = self.dropout(e, dropin)
-    h = self.dropout(T.nnet.sigmoid(T.dot(e, whe) + bh), droph)
-    py_x = T.nnet.softmax(T.dot(h, woh) + bo)
-    return h, py_x
-
-  '''
-  Dropout units in the layer X with probability given by p.
-  '''
-  def dropout(self, X, p=0.):
-    if p > 0:
-        retain_prob = 1 - p
-        X *= self.srng.binomial(X.shape, p=retain_prob, dtype=theano.config.floatX)
-        X /= retain_prob
-    return X
-
-  '''
-  Selects an optimization function for minimizing the cost of the model
-  '''
-  def optimizer(self, params, grads, lr, mom):
-    if self.args.optimizer == "sgd":
-      return self.sgd_updates(params, grads, lr)
-    if self.args.optimizer == "momentum":
-      return self.momentum_updates(params, grads, lr, mom)
-    if self.args.optimizer == "nesterov":
-      return self.nesterov_updates(params, grads, lr, mom)
-
-  '''
-  Stochastic gradient descent updates:
-    weight = weight - learning_rate * gradient
-  '''
-  def sgd_updates(self, params, gradients, learning_rate):
-    updates = []
-    for p,g in zip(params, gradients):
-      updates.append((p, p - learning_rate*g))
-    return updates
-
-  '''
-  Momentum weight updates; initial velocity = 0
-    weight = weight + velocity
-    velocity = (momentum * velocity) - (learning_rate * gradient)
-  '''
-  def momentum_updates(self, params, gradients, learning_rate, momentum=0.5):
-    assert T.lt(momentum, 1.0) and T.ge(momentum, 0)
-    updates = []
-    for p,g in zip(params,gradients):
-      pvelocity = theano.shared(p.get_value()*0., broadcastable=p.broadcastable)
-      updates.append((p, p + pvelocity))
-      updates.append((pvelocity, momentum*pvelocity - learning_rate*g))
-    return updates
-
-  '''
-  Nesterov weight updates; initial velocity = 0
-    weight = weight + (momentum*velocity) + ((1-momentum) * velocity))
-    velocity = (momentum * velocity) - (learning_rate * gradient)
-  '''
-  def nesterov_updates(self, params, gradients, learning_rate, momentum=0.5):
-    assert T.lt(momentum, 1.0) and T.ge(momentum, 0)
-    updates = []
-    for p,g in zip(params,gradients):
-      pvelocity = theano.shared(p.get_value()*0.)
-      pprev = pvelocity
-      updates.append((pvelocity, momentum*pvelocity - learning_rate*g))
-      updates.append((p, p + (momentum*pprev) + ((1-momentum) * pvelocity)))
-    return updates
-
-  '''
-  Serialise the model parameters to disk.
-  '''
-  def save(self, folder):
-      for param, name in zip(self.params, self.names):
-          numpy.save(os.path.join(folder, name + '.npy'), param.get_value())
+from WordEmbedder import WordEmbedder
 
 class Runner:
 
@@ -237,122 +24,138 @@ class Runner:
     self.args = args
 
   def run(self):
-    trainX, trainY, validX, validY, testX, testY, vocab = self.myLoadData()
-    self.args.vocab_size = len(vocab)
+    trainX, trainY, validX, validY, testX, testY, vocab = self.prepareAndReadData()
+    self.vocab_size = len(vocab)
 
-    ''' Display the received / default arguments for this run '''
-    for arg, val in self.args.__dict__.iteritems():
+    ''' Display the arguments for this run '''
+    print
+    for arg, val in OrderedDict(self.args.__dict__).iteritems():
       print("%s: %s" % (arg, str(val)))
+    print
 
     ''' It is recommended to increase the capacity of a dropout network by
         n/p. See Appendix A of Srivastava et al. (2014) '''
     if self.args.droph != 0. or self.args.dropin != 0.:
-      self.args.embed_size = int(math.floor(self.args.embed_size / self.args.dropin))
-      self.args.hidden_size = int(math.floor(self.args.hidden_size / self.args.droph))
+      self.args.embed_size = int(math.floor(self.args.embed_size / (1-self.args.dropin)))
+      self.args.hidden_size = int(math.floor(self.args.hidden_size / (1-self.args.droph)))
+      print "Resized the number of units in the hidden layers"
+      print "embed_size: %d" % self.args.embed_size
+      print "hidden_size: %d" % self.args.hidden_size
 
-    network = WordEmbedder(self.args)
+    network = WordEmbedder(self.args, self.vocab_size)
 
-    trainloss = []
     runtime = []
+    runtime.append(time())
     best_e = -1
-    best_vl = numpy.inf
+    best_vloss = numpy.inf
+    best_vpplx = numpy.inf
     best_dir = None
 
     idx2w  = dict((v,k) for k,v in vocab.iteritems())
 
     print("Training word-embedding model for %d epochs" % self.args.epochs)
     for i in range(self.args.epochs):
-      tic = time.time()
-      numpy.random.shuffle([trainX, trainY])
+      numpy.random.shuffle([trainX, trainY]) # reduce effects of data order
+      tic = time()
 
-      '''
-      Process the training data in minibatches
-      '''
+      # Process the training data in minibatches
+      trainloss = []
+      trainpplx = []
       for start, end in zip(range(0, len(trainX)+1, self.args.batch_size), 
                             range(self.args.batch_size, len(trainX)+1, self.args.batch_size)):
+        tictic = time() # we'll count how long this minibatch took
         x = trainX[start:end]
-        y = []
-        for v in trainY[start:end]:
-          y.append(numpy.eye(self.args.vocab_size+1)[v][0])
-        y = numpy.array(y)
-        trainloss.append(numpy.mean(network.train(x, y, 
-                                                  self.args.learning_rate,
-                                                  self.args.momentum)))
-        print '[train] epoch %i > %.2f%%,' % (i, (start+1)*100./len(trainX)),\
-              'completed in %.2f (sec) <<\r' % (time.time()-tic),
+        y = numpy.eye(self.vocab_size+1)[trainY[start:end].T][0] # TODO: why [0]?
+        loss, pplx = network.train(x, y, self.args.learning_rate,
+                                         self.args.momentum,
+                                         self.args.dropin,
+                                         self.args.droph,
+                                         self.args.l1reg,
+                                         self.args.l2reg)
+        trainloss.append(loss)
+        trainpplx.append(pplx)
+
+        print '[train] epoch %i >> batch %d/%d took %.2f (s) | batch ce: %.4f'\
+              ' pplx %.4f | smoothed ce: %.4f pplx %.4f <\r' % (i, 
+              start/self.args.batch_size, len(trainX)/self.args.batch_size, 
+              time()-tictic, loss, pplx, numpy.mean(trainloss),
+              numpy.mean(trainpplx)),
 
         sys.stdout.flush()
 
-      runtime.append(time.time()-tic)
+      loss = numpy.mean(trainloss)
+      pplx = numpy.mean(trainpplx)
+      runtime.append(time())
 
-      vx = validX
-      vy = []
-      for v in validY:
-        vy.append(numpy.eye(self.args.vocab_size+1)[v][0])
-      vy = numpy.array(vy)
-      valloss, y_x = network.validate(vx,vy)
+      # Process the validation data in minibatches
+      valloss = []
+      valpplx = []
+      for start, end in zip(range(0, len(validX)+1, self.args.batch_size), 
+                            range(self.args.batch_size, len(validX)+1, self.args.batch_size)):
+        vx = validX[start:end]
+        vy = numpy.eye(self.vocab_size+1)[validY[start:end].T][0] # TODO: why [0] ?
+        # no dropout or regularisation here
+        vloss, vpplx, vy_x = network.validate(vx, vy, 0., 0., 0., 0.) 
+        valloss.append(vloss)
+        valpplx.append(vpplx)
+
+      vloss = numpy.mean(valloss)
+      vpplx = numpy.mean(valpplx)
 
       # Save model parameters and arguments to disk 
-      # if it improved validation log-likelihood
-      if valloss < best_vl:
-        best_vl = valloss
+      # if it improved validation perplexity
+
+      if vpplx < best_vpplx:
+        best_vpplx = vpplx
         best_e = i
         savetime = strftime("%d%m%Y-%H%M%S", gmtime())       
         try:
           os.mkdir("checkpoints")
         except OSError:
           pass # directory already exists
-        os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
-        network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime))
-        bestdir = "checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vl, savetime)
+        os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime))
+        network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime))
+        bestdir = "checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime)
         self.saveArguments(bestdir)
 
-      print "epoch %d took %.2f (s) [train] log-likelihood: %.4f [val] "\
-            "log-likelihood: %.4f %s" % (i, runtime[-1], 
-            numpy.mean(trainloss), numpy.mean(valloss), 
-            "(saved)" if best_e == i else "")
+      print "epoch %d [train] took %.2f (s) avg. loss: %.4f avg. pplx: %.4f"\
+            " [val] took %.2f (s) avg. loss: %.4f avg. pplx: %.4f %s" % (i, 
+            runtime[-1]-runtime[-2], loss, pplx, time()-runtime[-1], vloss, 
+            vpplx, "(saved)" if best_e == i else "")
 
-      ''' Decay the learning rate decay AND increase momentum if
-          there is not improvement in the model for 10 epochs '''
+      ''' Decay the learning rate decay if there is no improvement 
+          in the model val pplx for 10 epochs '''
       if self.args.decay and abs(best_e-i) >= 10: 
         self.args.learning_rate *= 0.5 
-        self.args.momentum *= 1.2
 
-        # sanity check the momentum value
-        self.args.momentum = 0.99 \
-          if self.args.momentum >= 1.0 \
-          else self.args.momentum
-
-        print "Decaying learning rate to %f, increasing momentum to %f" \
-        % (self.args.learning_rate, self.args.momentum)
+        print "Decaying learning rate to %f" % self.args.learning_rate
 
         # Reload the network from the previous best position to
         # (possibly) speed up learning
         print "Reverting to the parameters are checkpoint %s" % bestdir
-        self.args.checkpoint = bestdir
+        self.args.initialisation_checkpoint = bestdir
         network = WordEmbedder(self.args)
 
       if self.args.learning_rate < 1e-5: 
         break
 
     print
-    print "Trained in %.2f (s). Best epoch %d [val] log-likelihood: %.4f"\
-          % (numpy.sum(runtime), best_e, best_vl)
+    print "Trained in %.2f (s). Best epoch %d [val] smoothed pplx: %.4f"\
+          % (runtime[-1]-runtime[0], best_e, best_vpplx)
 
   '''
-  Load the data from the inputfile into memory, with train/val/test chunks
+  Load the data from the onefile into memory, with train/val/test chunks
   '''
-  def myLoadData(self):
+  def prepareAndReadData(self):
     loader = LoadData(self.args)
-    trainx, trainy, valx, valy, testx, testy, vocab = loader.run()
-    return trainx, trainy, valx, valy, testx, testy, vocab      
+    return loader.run()
 
   '''
   Save the command-line arguments, along with the method defaults,
   used to parameterise this run.
   '''
   def saveArguments(self, directory):
-    handle = open("%s/arparse.args" % directory, "w")
+    handle = open("%s/argparse.args" % directory, "w")
     for arg, val in self.args.__dict__.iteritems():
       handle.write("%s: %s\n" % (arg, str(val)))
     handle.close()
@@ -374,13 +177,16 @@ if __name__ == "__main__":
   parser.add_argument("--decay", default=True, type=bool, help="Decay learning rate if no improvement in loss?")
 
   parser.add_argument("--l1reg", default=0., type=float, help="L1 cost penalty. Default=0. (off)")
-  parser.add_argument("--l2reg", default=0., type=float, help="L2 cost penalty. Default=0. (off)")
+  parser.add_argument("--l2reg", default=0.0001, type=float, help="L2 cost penalty. Default=0.0001")
   parser.add_argument("--dropin", default=0., type=float, help="Prob. of dropping embedding units. Default=0.")
   parser.add_argument("--droph", default=0., type=float, help="Prob. of dropping hidden units. Default=0.")
 
-  parser.add_argument("--checkpoint", default=None, type=str, help="Path to a pickled model")
+  parser.add_argument("--initialisation_checkpoint", default=None, type=str, help="Path to a pickled model")
   
-  parser.add_argument("--inputfile", type=str, help="Path to input text file", default="raw_sentences.txt")
+  parser.add_argument("--oneFile", type=str, help="Path to a single input text file. Will be split into train/val/test/", default="raw_sentences.txt")
+  parser.add_argument("--trainFile", type=str, help="Path to the training data text file")
+  parser.add_argument("--valFile", type=str, help="Path to the validation data text file")
+  parser.add_argument("--testFile", type=str, help="Path to the test data raw text file.")
   parser.add_argument("--nlen", type=int, help="n-gram lengths to extract from text. Default=4", default=4)
   parser.add_argument("--unk", type=int, help="unknown character cut-off", default=0)
 

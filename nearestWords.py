@@ -60,14 +60,11 @@ class NearestWords:
   def __init__(self, args):
     self.n = args.n
     self.vocab = cPickle.load(open("%s/dictionary.pk" % args.checkpoint, "rb"))
-    args.vocab_size = len(self.vocab)
     self.model = NearestEmbedder(args)
 
   def run(self):
     idx2w  = dict((v,k) for k,v in self.vocab.iteritems())
-
-    print "Model vocabulary"
-    print(self.fmtcols(self.vocab.keys(), 6))
+    print "vocab! will show you the model vocabulary\n"
 
     while True:
       text = raw_input("--->")

@@ -7,9 +7,8 @@ import shutil
 from time import gmtime, strftime
 
 import numpy
-from numpy import *
+from numpy import sqrt, zeros
 from numpy.random import randn
-from numpy import zeros
 import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -180,6 +179,8 @@ class WordEmbedder:
       return self.momentum_updates(params, grads, lr, mom)
     if self.args.optimizer == "nesterov":
       return self.nesterov_updates(params, grads, lr, mom)
+    if self.args.optimizer == "adagrad":
+      return self.adagrad_updates(params, grads, lr)
 
   '''
   Stochastic gradient descent updates:
@@ -218,6 +219,28 @@ class WordEmbedder:
       pprev = pvelocity
       updates.append((pvelocity, momentum*pvelocity - learning_rate*g))
       updates.append((p, p + (momentum*pprev) + ((1-momentum) * pvelocity)))
+    return updates
+
+  '''
+  Adagrad is a per-parameter adaptive optimisation method. It works by keeping
+  a record of the squared(gradients) at each update, and uses this record
+  to perform relative weight modifications.
+
+    cached_p = cached_p + gradient**2
+    weight^new = weight - learning_rate*gradient / sqrt(cached_p+epsilon)
+  '''
+  def adagrad_updates(self, params, gradients, learning_rate):
+    updates = []
+    cached_p = []
+
+    for p in params:
+      eps_p = numpy.zeros_like(p.get_value(borrow=True), dtype=theano.config.floatX)
+      cached_p.append(theano.shared(eps_p, borrow=True))
+
+    for p,g,c in zip(params, gradients, cached_p):
+      c_value = c + T.sqr(g)
+      updates.append((p, p - learning_rate * g / T.sqrt(c_value+1e-8)))
+      updates.append((c, c_value))
     return updates
 
   '''

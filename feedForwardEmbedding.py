@@ -6,6 +6,7 @@ import os
 import shutil
 from time import gmtime, strftime, time
 from collections import OrderedDict
+import signal
 
 import numpy
 from numpy import *
@@ -22,6 +23,7 @@ class Runner:
 
   def __init__(self, args):
     self.args = args
+    signal.signal(signal.SIGINT, self.sigint_handler)
 
   def run(self):
     trainX, trainY, validX, validY, testX, testY, vocab = self.prepareAndReadData()
@@ -44,12 +46,12 @@ class Runner:
 
     network = WordEmbedder(self.args, self.vocab_size)
 
-    runtime = []
-    runtime.append(time())
-    best_e = -1
-    best_vloss = numpy.inf
-    best_vpplx = numpy.inf
-    best_dir = None
+    self.runtime = []
+    self.runtime.append(time())
+    self.best_e = -1
+    self.best_vloss = numpy.inf
+    self.best_vpplx = numpy.inf
+    self.best_dir = None
 
     idx2w  = dict((v,k) for k,v in vocab.iteritems())
 
@@ -85,7 +87,7 @@ class Runner:
 
       loss = numpy.mean(trainloss)
       pplx = numpy.mean(trainpplx)
-      runtime.append(time())
+      self.runtime.append(time())
 
       # Process the validation data in minibatches
       valloss = []
@@ -105,43 +107,39 @@ class Runner:
       # Save model parameters and arguments to disk 
       # if it improved validation perplexity
 
-      if vpplx < best_vpplx:
-        best_vpplx = vpplx
-        best_e = i
+      if vpplx < self.best_vpplx:
+        self.best_vpplx = vpplx
+        self.best_e = i
         savetime = strftime("%d%m%Y-%H%M%S", gmtime())       
         try:
           os.mkdir("checkpoints")
         except OSError:
           pass # directory already exists
-        os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime))
-        network.save("checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime))
-        bestdir = "checkpoints/epoch%d_%.4f_%s/" % (best_e, best_vpplx, savetime)
-        self.saveArguments(bestdir)
+        os.mkdir("checkpoints/epoch%d_%.4f_%s/" % (self.best_e, self.best_vpplx, savetime))
+        network.save("checkpoints/epoch%d_%.4f_%s/" % (self.best_e, self.best_vpplx, savetime))
+        self.bestdir = "checkpoints/epoch%d_%.4f_%s/" % (self.best_e, self.best_vpplx, savetime)
+        self.saveArguments(self.bestdir)
 
       print "epoch %d [train] took %.2f (s) avg. loss: %.4f avg. pplx: %.4f"\
             " [val] took %.2f (s) avg. loss: %.4f avg. pplx: %.4f %s" % (i, 
-            runtime[-1]-runtime[-2], loss, pplx, time()-runtime[-1], vloss, 
-            vpplx, "(saved)" if best_e == i else "")
+            self.runtime[-1]-self.runtime[-2], loss, pplx, time()-self.runtime[-1], vloss, 
+            vpplx, "(saved)" if self.best_e == i else "")
 
       ''' Decay the learning rate decay if there is no improvement 
           in the model val pplx for 10 epochs '''
-      if self.args.decay and abs(best_e-i) >= 10: 
+      if self.args.decay and abs(self.best_e-i) >= 10: 
         self.args.learning_rate *= 0.5 
 
         print "Decaying learning rate to %f" % self.args.learning_rate
 
-        # Reload the network from the previous best position to
+        # Reload the network from the previous self.best position to
         # (possibly) speed up learning
-        print "Reverting to the parameters are checkpoint %s" % bestdir
-        self.args.initialisation_checkpoint = bestdir
+        print "Reverting to the parameters are checkpoint %s" % self.bestdir
+        self.args.initialisation_checkpoint = self.bestdir
         network = WordEmbedder(self.args)
 
       if self.args.learning_rate < 1e-5: 
         break
-
-    print
-    print "Trained in %.2f (s). Best epoch %d [val] smoothed pplx: %.4f"\
-          % (runtime[-1]-runtime[0], best_e, best_vpplx)
 
   '''
   Load the data from the onefile into memory, with train/val/test chunks
@@ -149,6 +147,11 @@ class Runner:
   def prepareAndReadData(self):
     loader = LoadData(self.args)
     return loader.run()
+
+  def printSummary(self):
+    print
+    print "Trained in %.2f (s). Best epoch %d [val] smoothed pplx: %.4f"\
+          % (self.runtime[-1]-self.runtime[0], self.best_e, self.best_vpplx)
 
   '''
   Save the command-line arguments, along with the method defaults,
@@ -160,6 +163,12 @@ class Runner:
       handle.write("%s: %s\n" % (arg, str(val)))
     handle.close()
     shutil.copyfile("dictionary.pk", "%s/dictionary.pk" %  directory) # copy the dictionary
+
+  def sigint_handler(self, signum, frame):
+    print
+    print "Training halted by Ctrl+C"
+    self.printSummary()
+    sys.exit(0)
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="Train a simple tri-gram word embeddings model")

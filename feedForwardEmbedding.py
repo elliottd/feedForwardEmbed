@@ -180,7 +180,7 @@ if __name__ == "__main__":
   parser.add_argument("--embed_size", default=50, type=int)
   parser.add_argument("--hidden_size", default=200, type=int)
 
-  parser.add_argument("--optimizer", default="momentum", type=str, help="Optimizer: sgd, momentum, nesterov")
+  parser.add_argument("--optimiser", default="momentum", type=str, help="Optimiser: sgd, momentum, nesterov")
   parser.add_argument("--learning_rate", default=0.1, type=float)
   parser.add_argument("--momentum", default=0.5, type=float)
   parser.add_argument("--decay", default=True, type=bool, help="Decay learning rate if no improvement in loss?")

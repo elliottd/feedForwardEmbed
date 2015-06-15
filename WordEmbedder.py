@@ -103,11 +103,11 @@ class WordEmbedder:
     y_x = T.argmax(py_x, axis=1) # sample the max prob word from test model
 
     ''' Train the parameters of the model, given a sequence of words, a target
-        word, and a learning rate. Selects the optimizer based on the user
+        word, and a learning rate. Selects the optimiser based on the user
         requirements.'''
     self.train = theano.function(inputs=[word_indices, y, lr, mom, dropin, droph, l1reg, l2reg],
                                  outputs=[cost, pplx],
-                                 updates=self.optimizer(self.params, gradients, lr, mom),
+                                 updates=self.optimiser(self.params, gradients, lr, mom),
                                  allow_input_downcast=True, on_unused_input='ignore')
 
     '''Validation is where we can test whether reducing the training loss
@@ -172,14 +172,14 @@ class WordEmbedder:
   '''
   Selects an optimization function for minimizing the cost of the model
   '''
-  def optimizer(self, params, grads, lr, mom):
-    if self.args.optimizer == "sgd":
+  def optimiser(self, params, grads, lr, mom):
+    if self.args.optimiser == "sgd":
       return self.sgd_updates(params, grads, lr)
-    if self.args.optimizer == "momentum":
+    if self.args.optimiser == "momentum":
       return self.momentum_updates(params, grads, lr, mom)
-    if self.args.optimizer == "nesterov":
+    if self.args.optimiser == "nesterov":
       return self.nesterov_updates(params, grads, lr, mom)
-    if self.args.optimizer == "adagrad":
+    if self.args.optimiser == "adagrad":
       return self.adagrad_updates(params, grads, lr)
 
   '''

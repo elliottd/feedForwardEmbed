@@ -25,7 +25,7 @@ with `--unk=0` as a threshold for unknown words.  The model will be trained
 over `--epochs=10` epochs, using a `--batch_size=100` instances, with a
 sequence of `--ngram=3` tokens input and `--nlen=4` in total, meaning three
 input tokens and one predicted token. The word embeddings will be
-`--embed_size=50' dimensional, the hidden layer will have `--hidden_size=200`
+`--embed_size=50` dimensional, the hidden layer will have `--hidden_size=200`
 dimensions. The optimiser will be `--optimiser=momentum`, with a
 `--learning_rate=0.1` and a `--momentum=0.5`, `--decay=True` which lets the
 learning rate decrease while training if validation perplexity does not

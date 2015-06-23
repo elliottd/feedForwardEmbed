@@ -141,10 +141,10 @@ class Runner:
       if self.args.learning_rate < 1e-5: 
         break
 
-  '''
-  Load the data from the onefile into memory, with train/val/test chunks
-  '''
   def prepareAndReadData(self):
+    '''
+    Load the data from the onefile into memory, with train/val/test chunks
+    '''
     loader = LoadData(self.args)
     return loader.run()
 
@@ -152,12 +152,12 @@ class Runner:
     print
     print "Trained in %.2f (s). Best epoch %d [val] smoothed pplx: %.4f"\
           % (self.runtime[-1]-self.runtime[0], self.best_e, self.best_vpplx)
-
-  '''
-  Save the command-line arguments, along with the method defaults,
-  used to parameterise this run.
-  '''
+          
   def saveArguments(self, directory):
+    '''
+    Save the command-line arguments, along with the method defaults,
+    used to parameterise this run.
+    '''    
     handle = open("%s/argparse.args" % directory, "w")
     for arg, val in self.args.__dict__.iteritems():
       handle.write("%s: %s\n" % (arg, str(val)))
@@ -165,6 +165,9 @@ class Runner:
     shutil.copyfile("dictionary.pk", "%s/dictionary.pk" %  directory) # copy the dictionary
 
   def sigint_handler(self, signum, frame):
+    '''
+    Custom Ctrl+C handler that ensures the user sees the state of the best saved model.
+    '''
     print
     print "Training halted by Ctrl+C"
     self.printSummary()

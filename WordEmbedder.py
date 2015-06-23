@@ -127,52 +127,52 @@ class WordEmbedder:
     self.normalize = theano.function(inputs=[],
                                      updates={emb:emb / T.sqrt((emb**2).sum(axis=1)).dimshuffle(0, 'x')})
 
-  '''
-  Initialise the weights from scratch of unpickle them from disk
-  '''
   def initWeights(self, xdim, ydim, initialisation_checkpoint=None, name=None):
+     '''
+     Initialise the weights from scratch of unpickle them from disk
+     '''
     if initialisation_checkpoint == None:
       return theano.shared(0.01 * randn(xdim, ydim).astype(theano.config.floatX))
     else:
       return theano.shared(numpy.load("%s/%s.npy" % (initialisation_checkpoint, name)).astype(theano.config.floatX))
 
-  '''
-  Initialise the bias from scratch of unpickle them from disk
-  '''
   def initBiases(self, dims, initialisation_checkpoint=None, name=None):
+    '''
+    Initialise the bias from scratch of unpickle them from disk
+    '''
     if initialisation_checkpoint == None:
       return theano.shared(zeros(dims, dtype=theano.config.floatX))
     else:
       return theano.shared(numpy.load("%s/%s.npy" % (initialisation_checkpoint, name)).astype(theano.config.floatX))
 
-  '''
-  The model is a simple multi-layer perceptron.
-  h is the hidden layer, which has sigmoid activations from the embeddings
-  py_x is the output layer, which has softmax activations from the hidden
-
-  dropin: probabilty of dropping embedding units
-  droph: probability of dropping hidden units
-  '''
   def model(self, e, whe, woh, bh, bo, dropin=0., droph=0.):
+    '''
+    The model is a simple multi-layer perceptron.
+    h is the hidden layer, which has sigmoid activations from the embeddings
+    py_x is the output layer, which has softmax activations from the hidden
+
+    dropin: probabilty of dropping embedding units
+    droph: probability of dropping hidden units
+    '''
     e = self.dropout(e, dropin)
     h = self.dropout(T.tanh(T.dot(e, whe) + bh), droph)
     py_x = T.nnet.softmax(T.dot(h, woh) + bo)
     return h, py_x
 
-  '''
-  Dropout units in the layer X with probability given by p.
-  '''
   def dropout(self, X, p=0.):
+    '''
+    Dropout units in the layer X with probability given by p.
+    '''
     if T.gt(p, 0.):
         retain_prob = 1 - p
         X *= self.srng.binomial(X.shape, p=retain_prob, dtype=theano.config.floatX)
         X /= retain_prob
     return X
 
-  '''
-  Selects an optimization function for minimizing the cost of the model
-  '''
   def optimiser(self, params, grads, lr, mom):
+    '''
+    Selects an optimization function for minimizing the cost of the model
+    '''
     if self.args.optimiser == "sgd":
       return self.sgd_updates(params, grads, lr)
     if self.args.optimiser == "momentum":
@@ -181,23 +181,23 @@ class WordEmbedder:
       return self.nesterov_updates(params, grads, lr, mom)
     if self.args.optimiser == "adagrad":
       return self.adagrad_updates(params, grads, lr)
-
-  '''
-  Stochastic gradient descent updates:
-    weight = weight - learning_rate * gradient
-  '''
+      
   def sgd_updates(self, params, gradients, learning_rate):
+    '''
+    Stochastic gradient descent updates:
+    weight = weight - learning_rate * gradient
+    '''
     updates = []
     for p,g in zip(params, gradients):
       updates.append((p, p - learning_rate*g))
     return updates
 
-  '''
-  Momentum weight updates; initial velocity = 0
+  def momentum_updates(self, params, gradients, learning_rate, momentum=0.5):
+    '''
+    Momentum weight updates; initial velocity = 0
     weight = weight + velocity
     velocity = (momentum * velocity) - (learning_rate * gradient)
-  '''
-  def momentum_updates(self, params, gradients, learning_rate, momentum=0.5):
+    '''
     assert T.lt(momentum, 1.0) and T.ge(momentum, 0)
     updates = []
     for p,g in zip(params,gradients):
@@ -206,12 +206,12 @@ class WordEmbedder:
       updates.append((pvelocity, momentum*pvelocity - learning_rate*g))
     return updates
 
-  '''
-  Nesterov weight updates; initial velocity = 0
+  def nesterov_updates(self, params, gradients, learning_rate, momentum=0.5):
+    '''
+    Nesterov weight updates; initial velocity = 0
     weight = weight + (momentum*velocity) + ((1-momentum) * velocity))
     velocity = (momentum * velocity) - (learning_rate * gradient)
-  '''
-  def nesterov_updates(self, params, gradients, learning_rate, momentum=0.5):
+    '''
     assert T.lt(momentum, 1.0) and T.ge(momentum, 0)
     updates = []
     for p,g in zip(params,gradients):
@@ -221,15 +221,15 @@ class WordEmbedder:
       updates.append((p, p + (momentum*pprev) + ((1-momentum) * pvelocity)))
     return updates
 
-  '''
-  Adagrad is a per-parameter adaptive optimisation method. It works by keeping
-  a record of the squared(gradients) at each update, and uses this record
-  to perform relative weight modifications.
+  def adagrad_updates(self, params, gradients, learning_rate):
+    '''
+    Adagrad is a per-parameter adaptive optimisation method. It works by keeping
+    a record of the squared(gradients) at each update, and uses this record
+    to perform relative weight modifications.
 
     cached_p = cached_p + gradient**2
     weight^new = weight - learning_rate*gradient / sqrt(cached_p+epsilon)
-  '''
-  def adagrad_updates(self, params, gradients, learning_rate):
+    '''
     updates = []
     cached_p = []
 
@@ -243,10 +243,10 @@ class WordEmbedder:
       updates.append((c, c_value))
     return updates
 
-  '''
-  Serialise the model parameters to disk.
-  '''
   def save(self, folder):
+    '''
+    Serialise the model parameters to disk.
+    '''
       for param, name in zip(self.params, self.names):
           numpy.save(os.path.join(folder, name + '.npy'), param.get_value())
 

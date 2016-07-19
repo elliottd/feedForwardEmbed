@@ -6,7 +6,7 @@ import cPickle
 import theano
 import theano.tensor as T
 
-from feedForwardEmbedding import WordEmbedder
+import WordEmbedder
 
 theano.config.optimizer = "fast_compile"
 theano.config.exception_verbosity = 'high'

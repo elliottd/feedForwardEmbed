@@ -128,9 +128,9 @@ class WordEmbedder:
                                      updates={emb:emb / T.sqrt((emb**2).sum(axis=1)).dimshuffle(0, 'x')})
 
   def initWeights(self, xdim, ydim, initialisation_checkpoint=None, name=None):
-     '''
-     Initialise the weights from scratch of unpickle them from disk
-     '''
+    '''
+    Initialise the weights from scratch of unpickle them from disk
+    '''
     if initialisation_checkpoint == None:
       return theano.shared(0.01 * randn(xdim, ydim).astype(theano.config.floatX))
     else:
@@ -247,6 +247,6 @@ class WordEmbedder:
     '''
     Serialise the model parameters to disk.
     '''
-      for param, name in zip(self.params, self.names):
-          numpy.save(os.path.join(folder, name + '.npy'), param.get_value())
+    for param, name in zip(self.params, self.names):
+      numpy.save(os.path.join(folder, name + '.npy'), param.get_value())
 
